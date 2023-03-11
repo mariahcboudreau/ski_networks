@@ -1,0 +1,10 @@
+*.geojson
+*.osm
+*.osm.gz
+.*.swp
+.DS_Store
+.*.DS_Store
+._cache
+._.idea
+.idea
+cache
