@@ -1,46 +1,64 @@
-# Import Elevation data
+# Adjust Elevation Data and find the slope
 
-import requests
-import urllib
+import numpy as np
 import pandas as pd
+import os
+import geopy.distance
+import pickle
 
-# USGS Elevation Point Query Service
-#url = r'https://nationalmap.gov/epqs/pqs.php?
-#new 2023:
-url = r'https://epqs.nationalmap.gov/v1/json?'
 
-# coordinates with known elevation[,],[],[],[],[],[],[],[],[],[],[]]
-lat = [44.4151072]
-lon = [-72.8343026]
 
-# create data frame
-df_ele = pd.DataFrame({
-    'lat': lat,
-    'lon': lon
-})
+df_ski_diff = pd.read_csv('trail_status/trail_status.csv')
+df_ski_diff = df_ski_diff.rename(columns={'Unnamed: 0': 'Trail_ID'})
+df_ski_diff = df_ski_diff.set_index("Trail_ID")
 
-def elevation_function(df_ele, lat_column, lon_column):
-    """Query service using lat, lon. add the elevation values as a new column."""
-    elevations = []
-    for lat, lon in zip(df_ele[lat_column], df_ele[lon_column]):
-                
-        # define rest query params
-        params = {
-            'x': lon,
-            'y': lat,
-            'units': 'Feet',
-            'wkid': 4326,
-            'includeDate': 'False'
-        }
+
+top_path = 'ski_resort_piste_coords'
+# resorts = os.listdir(top_path)[1:]
+resorts = ['Stowe Mountain Resort', 'Telluride Ski Area', 'Taos Ski Valley', 'Killington']
+
+df_ski_trails = pd.DataFrame(columns = ['ID', 'Resort', 'Trail', 'Input Lon', 'Input Lat', 'Elev(ft)', 'Elev(m)', 'Length(ft)', 'Lowest Elev(ft)', 'Slope', 'Average Slope', 'Max Slope', 'Grade', 'Gladed', 'Moguled', 'Diff'])
+
+
+for resort in resorts:
+    resort_path = top_path + '/' + resort
+    trails_csv = os.listdir(resort_path)
+    if '.DS_Store' in trails_csv:
+        index = trails_csv.index('.DS_Store')
+        del trails_csv[index]
+    for trail in trails_csv:
+        final_path = resort_path + '/' + trail
+        df_temp = pd.read_csv(final_path)
+        df_temp.insert(1, 'Resort', resort)
+        df_temp.insert(2, 'Trail', trail.replace('.csv', ''))
+        df_temp['Length(ft)'] = 0
+        df_temp['Lowest Elev(ft)'] = np.min(df_temp["Elev(ft)"])
+        df_temp['Slope'] = 0
+        length = 0
+        for ell in range(len(df_temp)-1):
+            df_temp['Length(ft)'][ell+1] = geopy.distance.distance([df_temp['Input Lat'][ell], df_temp['Input Lon'][ell]], [df_temp['Input Lat'][ell+1], df_temp['Input Lon'][ell+1]]).ft
+            df_temp['Slope'][ell+1] = (df_temp['Elev(ft)'][ell]-df_temp['Elev(ft)'][ell+1])/(df_temp["Length(ft)"][ell+1]) 
+
+        df_temp['Average Slope'] = np.average(df_temp['Slope'])
+        df_temp['Max Slope'] = np.max(df_temp['Slope'])
+        trail_id = df_temp["Trail"][0].split('_')
+        df_temp['Grade'] = df_ski_diff["difficulty"][int(trail_id[0])]
+        df_temp['Gladed'] = np.where(df_ski_diff["gladed"][int(trail_id[0])] == 'TRUE', 1, 0)
+        df_temp['Moguled'] = np.where(df_ski_diff["grooming"][int(trail_id[0])] == 'mogul', 1, 0)
+
+        # Diff = AveSlope + MaxSlope + 5(gladed) + 3(Moguls)
+        df_temp['Diff'] = df_temp['Average Slope'] + df_temp['Max Slope'] + 10*df_temp['Gladed'] + 6*df_temp['Moguled']
+        df_ski_trails = pd.concat([df_ski_trails, df_temp])
         
-        # format query string and return query value
-        result = requests.get((url + urllib.parse.urlencode(params)))
-        #elevations.append(result.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation'])
-        #new 2023:
-        elevations.append(result.json()['value'])
 
-    df_ele['elev_feet'] = elevations
 
-elevation_function(df_ele, 'lat', 'lon')
-print(df_ele.head())
+
+
+df_ski_trails.to_csv('ski_trails_data.csv', columns = ["Lowest Elev(ft)", "Diff"])
+
+
+print("stop")
+
+
+
     
